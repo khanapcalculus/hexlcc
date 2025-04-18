@@ -205,7 +205,7 @@ const Whiteboard = () => {
         }
 
         // Throttle socket emissions to reduce network traffic - Increased to 16
-        if (lastLine.points.length % 16 === 0) {
+        if (lastLine.points.length % 2 === 0) {
           socket.emit('draw-update', { pages: updatedPages });
         }
       }
