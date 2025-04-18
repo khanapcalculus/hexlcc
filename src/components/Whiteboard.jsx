@@ -131,6 +131,7 @@ const Whiteboard = () => {
     setIsDrawing(true);
     setStartPos(pos);
   
+    // In the handleMouseDown function, make sure tension is consistent
     if (tool === 'pen' || tool === 'eraser') {
       const updatedPages = pages.map(page => {
         if (page.id === currentPage) {
@@ -141,19 +142,19 @@ const Whiteboard = () => {
               points: [pos.x, pos.y],
               color: selectedColor,
               strokeWidth: selectedStrokeWidth,
-              tension: 0.2,
+              tension: 0.3,  // Match the tension value used in rendering
               lineCap: 'round',
-              lineJoin: 'round'
+              lineJoin: 'round',
+              globalCompositeOperation: tool === 'eraser' ? 'destination-out' : 'source-over'
             }]
           };
         }
         return page;
       });
       setPages(updatedPages);
-      // Change from pages-update to draw-update for consistency
       socket.emit('draw-update', { pages: updatedPages });
     }
-    
+
     if (tool === 'select') {
       const clickedShape = e.target;
       // Check if we clicked on empty stage
@@ -189,6 +190,9 @@ const Whiteboard = () => {
       
       if (lastLine) {
         lastLine.points = lastLine.points.concat([pos.x, pos.y]);
+        lastLine.tension = 0.3; // Match the tension value used in rendering
+        lastLine.lineCap = 'round';
+        lastLine.lineJoin = 'round';
         setPages(updatedPages);
         
         // Only update the specific line in the layer to prevent flickering
@@ -199,13 +203,14 @@ const Whiteboard = () => {
             const lastKonvaLine = lines[lines.length - 1];
             if (lastKonvaLine) {
               lastKonvaLine.points(lastLine.points);
+              lastKonvaLine.tension(lastLine.tension);
               layer.batchDraw(); // More efficient than full redraw
             }
           }
         }
         
-        // Throttle socket emissions to reduce network traffic
-        if (lastLine.points.length % 8 === 0) {
+        // Emit updates more frequently for smoother real-time experience in production
+        if (lastLine.points.length % 4 === 0) {  // Changed from 8 to 4 for more frequent updates
           socket.emit('draw-update', { pages: updatedPages });
         }
       }
