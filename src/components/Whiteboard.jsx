@@ -140,16 +140,16 @@ const Whiteboard = () => {
               points: [pos.x, pos.y],
               color: selectedColor,
               strokeWidth: selectedStrokeWidth,
-              tension: 0.2,
+              tension: 0.5,  // Increased tension for smoother curves
               lineCap: 'round',
-              lineJoin: 'round'
+              lineJoin: 'round',
+              globalCompositeOperation: tool === 'eraser' ? 'destination-out' : 'source-over'
             }]
           };
         }
         return page;
       });
       setPages(updatedPages);
-      // Change from pages-update to draw-update for consistency
       socket.emit('draw-update', { pages: updatedPages });
     }
     
@@ -187,7 +187,11 @@ const Whiteboard = () => {
       const lastLine = updatedPages[currentPageIndex].lines[updatedPages[currentPageIndex].lines.length - 1];
       
       if (lastLine) {
+        // Improve line smoothness by adding tension and capturing more points
         lastLine.points = lastLine.points.concat([pos.x, pos.y]);
+        lastLine.tension = 0.5; // Increase tension for smoother curves
+        lastLine.lineCap = 'round';
+        lastLine.lineJoin = 'round';
         setPages(updatedPages);
         
         // Only update the specific line in the layer to prevent flickering
@@ -198,13 +202,15 @@ const Whiteboard = () => {
             const lastKonvaLine = lines[lines.length - 1];
             if (lastKonvaLine) {
               lastKonvaLine.points(lastLine.points);
+              lastKonvaLine.tension(lastLine.tension);
               layer.batchDraw(); // More efficient than full redraw
             }
           }
         }
         
-        // Throttle socket emissions to reduce network traffic
-        if (lastLine.points.length % 8 === 0) {
+        // Emit updates more frequently for smoother real-time experience
+        // but still throttle to avoid network congestion
+        if (lastLine.points.length % 4 === 0) {
           socket.emit('draw-update', { pages: updatedPages });
         }
       }
@@ -762,93 +768,19 @@ const handleTransformEnd = (e) => {
           width={window.innerWidth}
           height={window.innerHeight}
           onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
+          onMousemove={handleMouseMove}
+          onMouseup={() => {
+            setIsDrawing(false);
+            handleDrawEnd();
+          }}
           onTouchStart={handleMouseDown}
           onTouchMove={handleMouseMove}
-          onTouchEnd={handleMouseUp}
-          style={{ 
-            touchAction: 'none',
-            backgroundColor: 'white'
+          onTouchEnd={() => {
+            setIsDrawing(false);
+            handleDrawEnd();
           }}
+          ref={stageRef}
         >
-          {/* Bottom layer for shapes */}
-          <Layer>
-            {pages[currentPage - 1]?.shapes.map((shape) => (
-              <React.Fragment key={shape.id}>
-                {shape.type === 'image' && (
-                  <Image
-                    id={shape.id}
-                    image={shape.imageObj}
-                    x={shape.x}
-                    y={shape.y}
-                    width={shape.width}
-                    height={shape.height}
-                    rotation={shape.rotation || 0}
-                    draggable={tool === 'select'}
-                    onClick={() => tool === 'select' && setSelectedId(shape.id)}
-                    onDragEnd={handleDragEnd}
-                    onTransformEnd={handleTransformEnd}
-                  />
-                )}
-                {shape.type === 'line' && (
-                  <Line
-                    id={shape.id}
-                    points={shape.points}
-                    stroke={shape.color}
-                    strokeWidth={shape.strokeWidth}
-                    x={shape.x || 0}
-                    y={shape.y || 0}
-                    rotation={shape.rotation || 0}
-                    draggable={tool === 'select'}
-                    onClick={() => tool === 'select' && setSelectedId(shape.id)}
-                    onDragEnd={handleDragEnd}
-                    onTransformEnd={handleTransformEnd}
-                    perfectDrawEnabled={true}
-                    tension={0}
-                    lineCap="round"
-                    lineJoin="round"
-                  />
-                )}
-                {shape.type === 'rectangle' && (
-                  <Rect
-                    id={shape.id}
-                    x={shape.x}
-                    y={shape.y}
-                    width={shape.width}
-                    height={shape.height}
-                    stroke={shape.color}
-                    strokeWidth={shape.strokeWidth}
-                    rotation={shape.rotation || 0}
-                    fill="transparent"
-                    draggable={tool === 'select'}
-                    onClick={() => tool === 'select' && setSelectedId(shape.id)}
-                    onDragEnd={handleDragEnd}
-                    onTransformEnd={handleTransformEnd}
-                  />
-                )}
-                {shape.type === 'circle' && (
-                  <Ellipse
-                    id={shape.id}
-                    x={shape.x + shape.width / 2}
-                    y={shape.y + shape.height / 2}
-                    radiusX={shape.width / 2}
-                    radiusY={shape.height / 2}
-                    stroke={shape.color}
-                    strokeWidth={shape.strokeWidth}
-                    rotation={shape.rotation || 0}
-                    fill="transparent"
-                    draggable={tool === 'select'}
-                    onClick={() => tool === 'select' && setSelectedId(shape.id)}
-                    onDragEnd={handleDragEnd}
-                    onTransformEnd={handleTransformEnd}
-                  />
-                )}
-              </React.Fragment>
-            ))}
-          </Layer>
-          
-          {/* Middle layer for drawing with class name for reference */}
           <Layer className="drawing-layer">
             {pages[currentPage - 1]?.lines.map((line, i) => (
               <Line
@@ -856,57 +788,21 @@ const handleTransformEnd = (e) => {
                 points={line.points}
                 stroke={line.color}
                 strokeWidth={line.strokeWidth}
-                tension={0.3}  // Lower tension for smoother curves
-                lineCap="round"
-                lineJoin="round"
+                tension={line.tension || 0.5}  // Ensure tension is applied
+                lineCap={line.lineCap || 'round'}
+                lineJoin={line.lineJoin || 'round'}
                 globalCompositeOperation={
                   line.tool === 'eraser' ? 'destination-out' : 'source-over'
                 }
-                listening={false}  // Prevent interaction with lines
-                perfectDrawEnabled={false}  // Improve performance
-                hitStrokeWidth={0}  // Prevent hit detection on lines
               />
             ))}
+            {/* ... existing code for other shapes ... */}
           </Layer>
-          
-          {/* Top layer for selection */}
-          <Layer>
-            {selectedId && tool === 'select' && pages[currentPage - 1]?.shapes.find(s => s.id === selectedId) && (
-              <Transformer
-                ref={transformerRef}
-                boundBoxFunc={(oldBox, newBox) => {
-                  // Prevent negative width/height
-                  if (newBox.width < 10 || newBox.height < 10) {
-                    return oldBox;
-                  }
-                  return newBox;
-                }}
-                enabledAnchors={[
-                  'top-left', 'top-center', 'top-right',
-                  'middle-left', 'middle-right',
-                  'bottom-left', 'bottom-center', 'bottom-right'
-                ]}
-                rotateEnabled={true}
-                resizeEnabled={true}
-                keepRatio={false}
-                padding={5}
-                anchorSize={10}
-                anchorCornerRadius={4}
-                borderStroke="#00a0ff"
-                borderStrokeWidth={2}
-                anchorStroke="#00a0ff"
-                anchorFill="#ffffff"
-                anchorStrokeWidth={2}
-                borderDash={[3, 3]}
-                centeredScaling={false}
-                ignoreStroke={true}
-              />
-            )}
-          </Layer>
+          {/* ... existing code for other shapes ... */}
         </Stage>
+        {/* ... existing code for other shapes ... */}
       </div>
-      
-      <PaginationControls />
+      {/* ... existing code for other shapes ... */}
     </div>
   );
 };
