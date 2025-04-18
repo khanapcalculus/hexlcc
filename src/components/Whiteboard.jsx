@@ -1,6 +1,7 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Ellipse, Image, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
-import io from 'socket.io-client';
+//import io from 'socket.io-client';
 // Fix import paths to be within src directory
 import circleIcon from '../assets/icons/circle.png';
 import clearIcon from '../assets/icons/clear.png';
@@ -15,13 +16,15 @@ import logo from '../assets/logo/logo.png';
 // Add these imports at the top with other icon imports
 import colorPaletteIcon from '../assets/icons/palette.png';
 
-// Update Socket.IO connection to use environment variables or dynamic URL
-const SOCKET_SERVER = process.env.REACT_APP_SOCKET_SERVER || window.location.origin;
-const socket = io(SOCKET_SERVER, {
-  transports: ['websocket', 'polling'],
+import { io } from 'socket.io-client';
+
+const socket = io('https://lcchex-backend.onrender.com', { // Ensure backend URL is correct
+  transports: ['websocket'], // Force websocket for better performance
   reconnectionDelay: 1000,
   reconnectionAttempts: 10,
-  forceNew: true
+  forceNew: true,
+  path: '/socket.io', // Match your server-side path, if any
+  secure: true // Keep secure: true for HTTPS deployment
 });
 
 
@@ -93,10 +96,10 @@ const Whiteboard = () => {
         if (node) {
           // Attach node to transformer
           transformerRef.current.nodes([node]);
-          
+
           // Force update the transformer
           transformerRef.current.getLayer().batchDraw();
-          
+
           // Make sure transformer is visible and on top
           transformerRef.current.moveToTop();
           transformerRef.current.forceUpdate();
@@ -112,7 +115,7 @@ const Whiteboard = () => {
 
   const handleMouseDown = (e) => {
     let pos;
-    
+
     if (e.type === 'touchstart') {
       if (e.evt) {
         e.evt.preventDefault();
@@ -125,13 +128,12 @@ const Whiteboard = () => {
     } else {
       pos = e.target.getStage().getPointerPosition();
     }
-  
+
     if (!pos) return;
-    
+
     setIsDrawing(true);
     setStartPos(pos);
-  
-    // In the handleMouseDown function, make sure tension is consistent
+
     if (tool === 'pen' || tool === 'eraser') {
       const updatedPages = pages.map(page => {
         if (page.id === currentPage) {
@@ -142,16 +144,16 @@ const Whiteboard = () => {
               points: [pos.x, pos.y],
               color: selectedColor,
               strokeWidth: selectedStrokeWidth,
-              tension: 0.3,  // Match the tension value used in rendering
+              tension: 0.2,
               lineCap: 'round',
-              lineJoin: 'round',
-              globalCompositeOperation: tool === 'eraser' ? 'destination-out' : 'source-over'
+              lineJoin: 'round'
             }]
           };
         }
         return page;
       });
       setPages(updatedPages);
+      // Change from pages-update to draw-update for consistency
       socket.emit('draw-update', { pages: updatedPages });
     }
 
@@ -175,26 +177,23 @@ const Whiteboard = () => {
 
   const handleMouseMove = (e) => {
     if (!isDrawing) return;
-  
+
     const pos = e.type.includes('touch') ?
       e.target.getStage().getPointerPosition() :
       e.target.getStage().getPointerPosition();
-  
+
     if (!pos) return;
-  
+
     if (tool === 'pen' || tool === 'eraser') {
       // Optimize pen/eraser by updating without full re-render
       const updatedPages = [...pages];
       const currentPageIndex = currentPage - 1;
       const lastLine = updatedPages[currentPageIndex].lines[updatedPages[currentPageIndex].lines.length - 1];
-      
+
       if (lastLine) {
         lastLine.points = lastLine.points.concat([pos.x, pos.y]);
-        lastLine.tension = 0.3; // Match the tension value used in rendering
-        lastLine.lineCap = 'round';
-        lastLine.lineJoin = 'round';
         setPages(updatedPages);
-        
+
         // Only update the specific line in the layer to prevent flickering
         const layer = stageRef.current.findOne('.drawing-layer');
         if (layer) {
@@ -203,26 +202,25 @@ const Whiteboard = () => {
             const lastKonvaLine = lines[lines.length - 1];
             if (lastKonvaLine) {
               lastKonvaLine.points(lastLine.points);
-              lastKonvaLine.tension(lastLine.tension);
               layer.batchDraw(); // More efficient than full redraw
             }
           }
         }
-        
-        // Emit updates more frequently for smoother real-time experience in production
-        if (lastLine.points.length % 32 === 0) {  // Changed from 8 to 4 for more frequent updates
+
+        // Throttle socket emissions to reduce network traffic - Increased to 16
+        if (lastLine.points.length % 16 === 0) {
           socket.emit('draw-update', { pages: updatedPages });
         }
       }
     } else if (['line', 'rectangle', 'circle'].includes(tool)) {
       const updatedPages = [...pages];
       const currentPageIndex = currentPage - 1;
-      
+
       // Remove previous temp shape
       updatedPages[currentPageIndex].shapes = updatedPages[currentPageIndex].shapes.filter(
         shape => shape.id !== 'temp'
       );
-      
+
       // Add new temp shape with proper properties
       let newShape = {
         id: 'temp',
@@ -230,7 +228,7 @@ const Whiteboard = () => {
         color: selectedColor,
         strokeWidth: selectedStrokeWidth
       };
-      
+
       if (tool === 'line') {
         // For line, store the actual points
         newShape = {
@@ -251,7 +249,7 @@ const Whiteboard = () => {
           height: Math.abs(pos.y - startPos.y)
         };
       }
-      
+
       updatedPages[currentPageIndex].shapes.push(newShape);
       setPages(updatedPages);
       socket.emit('draw-update', { pages: updatedPages });
@@ -266,22 +264,22 @@ const Whiteboard = () => {
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e) => {
     setIsDrawing(false);
     handleDrawEnd();
-    
+
     if (['line', 'rectangle', 'circle'].includes(tool)) {
       const updatedPages = [...pages];
       const currentPageIndex = currentPage - 1;
       const tempShape = updatedPages[currentPageIndex].shapes.find(shape => shape.id === 'temp');
-      
+
       if (tempShape) {
         // Remove temp shape and add final shape with a unique ID
         updatedPages[currentPageIndex].shapes = [
           ...updatedPages[currentPageIndex].shapes.filter(shape => shape.id !== 'temp'),
           { ...tempShape, id: Date.now().toString() }
         ];
-        
+
         setPages(updatedPages);
         socket.emit('draw-update', { pages: updatedPages });
       }
@@ -293,29 +291,29 @@ const Whiteboard = () => {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-  
+
     if (!file.type.startsWith('image/')) {
       alert('Please upload an image file');
       return;
     }
-  
+
     const reader = new FileReader();
     reader.onload = () => {
       // Create a new image object for loading
       const imageObj = new window.Image();
       imageObj.crossOrigin = 'anonymous';
-  
+
       imageObj.onload = () => {
         // Calculate dimensions to maintain aspect ratio with max width of 500px
         let width = imageObj.width;
         let height = imageObj.height;
-        
+
         if (width > 500) {
           const ratio = height / width;
           width = 500;
           height = width * ratio;
         }
-        
+
         // Once image is loaded, add it to the canvas
         const newShape = {
           id: Date.now().toString(),
@@ -327,7 +325,7 @@ const Whiteboard = () => {
           imageObj: imageObj,
           image: reader.result // Store the base64 data
         };
-  
+
         const updatedPages = pages.map(page => {
           if (page.id === currentPage) {
             return {
@@ -337,15 +335,15 @@ const Whiteboard = () => {
           }
           return page;
         });
-        
+
         setPages(updatedPages);
         socket.emit('draw-update', { pages: updatedPages });
       };
-  
+
       // Set image source to trigger loading
       imageObj.src = reader.result;
     };
-  
+
     reader.readAsDataURL(file);
   };
 
@@ -382,11 +380,11 @@ const handleTransformEnd = (e) => {
   const scaleX = node.scaleX();
   const scaleY = node.scaleY();
   const rotation = node.rotation();
-  
+
   // Reset scale on the node
   node.scaleX(1);
   node.scaleY(1);
-  
+
   const updatedPages = pages.map(page => {
     if (page.id === currentPage) {
       const newShapes = page.shapes.map(shape => {
@@ -400,13 +398,13 @@ const handleTransformEnd = (e) => {
               const y1 = oldPoints[1];
               const x2 = oldPoints[2];
               const y2 = oldPoints[3];
-              
+
               // Calculate new endpoints based on scale and rotation
               const dx = x2 - x1;
               const dy = y2 - y1;
               const newDx = dx * scaleX;
               const newDy = dy * scaleY;
-              
+
               // Return updated line with new points
               return {
                 ...shape,
@@ -534,10 +532,10 @@ const handleTransformEnd = (e) => {
   // Update the container div to enable scrolling
   return (
     <div className="whiteboard-container" style={{ height: '100vh', overflow: 'hidden' }}>
-      <div style={{ 
-        position: 'fixed', 
-        left: 10, 
-        top: '50%', 
+      <div style={{
+        position: 'fixed',
+        left: 10,
+        top: '50%',
         transform: 'translateY(-50%)',
         display: 'flex',
         flexDirection: 'column',
@@ -547,9 +545,9 @@ const handleTransformEnd = (e) => {
         borderRadius: '8px',
         zIndex: 1,
       }}>
-        <button 
-          onClick={() => setTool('pen')} 
-          style={{ 
+        <button
+          onClick={() => setTool('pen')}
+          style={{
             padding: 8,
             backgroundColor: 'transparent',
             border: '1px solid #333',
@@ -583,9 +581,9 @@ const handleTransformEnd = (e) => {
 
         {/* Color Picker */}
         <div style={{ display: 'inline-block', position: 'relative' }}>
-          <button 
+          <button
             onClick={() => setShowColorPicker(!showColorPicker)}
-            style={{ 
+            style={{
               width: '40px',
               height: '40px',
               display: 'flex',
@@ -597,8 +595,8 @@ const handleTransformEnd = (e) => {
               cursor: 'pointer'
             }}
           >
-            <img src={colorPaletteIcon} alt="Color Palette" width="24" height="24" 
-              style={{ 
+            <img src={colorPaletteIcon} alt="Color Palette" width="24" height="24"
+              style={{
                 filter: `drop-shadow(0 0 2px ${selectedColor})`,
                 backgroundColor: 'transparent'
               }}
@@ -640,9 +638,9 @@ const handleTransformEnd = (e) => {
 
         {/* Stroke Width Picker */}
         <div style={{ display: 'inline-block', position: 'relative' }}>
-          <button 
+          <button
             onClick={() => setShowStrokePicker(!showStrokePicker)}
-            style={{ 
+            style={{
               width: '40px',
               height: '40px',
               display: 'flex',
@@ -709,11 +707,11 @@ const handleTransformEnd = (e) => {
 
         {/* Image Upload */}
         <div style={{ position: 'relative' }}>
-          <input 
-            type="file" 
-            accept="image/*" 
+          <input
+            type="file"
+            accept="image/*"
             onChange={handleImageUpload}
-            style={{ 
+            style={{
               width: '40px',
               height: '40px',
               opacity: 0,
@@ -724,7 +722,7 @@ const handleTransformEnd = (e) => {
               zIndex: 1
             }}
           />
-          <button style={{ 
+          <button style={{
             width: '40px',
             height: '40px',
             display: 'flex',
@@ -739,9 +737,9 @@ const handleTransformEnd = (e) => {
           </button>
         </div>
 
-        <button 
-          onClick={clearCanvas} 
-          style={{ 
+        <button
+          onClick={clearCanvas}
+          style={{
             width: '40px',
             height: '40px',
             display: 'flex',
@@ -757,7 +755,7 @@ const handleTransformEnd = (e) => {
         </button>
       </div>
 
-      <div style={{ 
+      <div style={{
         height: '100%',
         width: '100%',
         position: 'relative'
@@ -773,7 +771,7 @@ const handleTransformEnd = (e) => {
           onTouchStart={handleMouseDown}
           onTouchMove={handleMouseMove}
           onTouchEnd={handleMouseUp}
-          style={{ 
+          style={{
             touchAction: 'none',
             backgroundColor: 'white'
           }}
@@ -853,7 +851,7 @@ const handleTransformEnd = (e) => {
               </React.Fragment>
             ))}
           </Layer>
-          
+
           {/* Middle layer for drawing with class name for reference */}
           <Layer className="drawing-layer">
             {pages[currentPage - 1]?.lines.map((line, i) => (
@@ -874,7 +872,7 @@ const handleTransformEnd = (e) => {
               />
             ))}
           </Layer>
-          
+
           {/* Top layer for selection */}
           <Layer>
             {selectedId && tool === 'select' && pages[currentPage - 1]?.shapes.find(s => s.id === selectedId) && (
@@ -911,7 +909,7 @@ const handleTransformEnd = (e) => {
           </Layer>
         </Stage>
       </div>
-      
+
       <PaginationControls />
     </div>
   );
