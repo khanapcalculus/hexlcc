@@ -22,6 +22,11 @@ if (process.env.NODE_ENV === 'production') {
 // Keep the public folder for other static assets
 app.use(express.static('public'));
 
+// Define simple routes instead of using complex route patterns
+app.get('/api/status', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 io.on('connection', (socket) => {
   console.log('a user connected');
   
