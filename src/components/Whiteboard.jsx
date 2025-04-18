@@ -210,7 +210,7 @@ const Whiteboard = () => {
         }
         
         // Emit updates more frequently for smoother real-time experience in production
-        if (lastLine.points.length % 4 === 0) {  // Changed from 8 to 4 for more frequent updates
+        if (lastLine.points.length % 16 === 0) {  // Changed from 8 to 4 for more frequent updates
           socket.emit('draw-update', { pages: updatedPages });
         }
       }
