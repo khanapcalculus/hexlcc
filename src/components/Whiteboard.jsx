@@ -1,7 +1,6 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Ellipse, Image, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
-//import io from 'socket.io-client';
+import io from 'socket.io-client';
 // Fix import paths to be within src directory
 import circleIcon from '../assets/icons/circle.png';
 import clearIcon from '../assets/icons/clear.png';
@@ -16,15 +15,13 @@ import logo from '../assets/logo/logo.png';
 // Add these imports at the top with other icon imports
 import colorPaletteIcon from '../assets/icons/palette.png';
 
-import { io } from 'socket.io-client';
-
-const socket = io('https://lcchex-backend.onrender.com', { // Ensure backend URL is correct
-  transports: ['websocket'], // Force websocket for better performance
+// Update Socket.IO connection to use environment variables or dynamic URL
+const SOCKET_SERVER = process.env.REACT_APP_SOCKET_SERVER || window.location.origin;
+const socket = io(SOCKET_SERVER, {
+  transports: ['websocket', 'polling'],
   reconnectionDelay: 1000,
   reconnectionAttempts: 10,
-  forceNew: true,
-  path: '/socket.io', // Match your server-side path, if any
-  secure: true // Keep secure: true for HTTPS deployment
+  forceNew: true
 });
 
 
