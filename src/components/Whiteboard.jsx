@@ -16,13 +16,14 @@ import logo from '../assets/logo/logo.png';
 import colorPaletteIcon from '../assets/icons/palette.png';
 
 // Update Socket.IO connection to use environment variables or dynamic URL
-const SOCKET_SERVER = process.env.REACT_APP_SOCKET_SERVER || window.location.origin;
-const socket = io(SOCKET_SERVER, {
-  transports: ['websocket', 'polling'],
-  reconnectionDelay: 1000,
-  reconnectionAttempts: 10,
-  forceNew: true
-});
+useEffect(() => {
+    // Connect to the socket server
+    const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
+    socketRef.current = io(serverUrl, {
+      transports: ['websocket'],
+      secure: true
+    });
+
 
 
 const Whiteboard = () => {
